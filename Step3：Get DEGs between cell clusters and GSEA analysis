@@ -1,0 +1,53 @@
+#Using clutree to help with clustering
+library(clustree)
+clustree(immune.combined1@meta.data,prefix ="integrated_snn_res.")
+#### 查看各组细胞数 ----
+table(Idents(immune.combined1),immune.combined1$tech)
+#### 找marker ----
+DefaultAssay(immune.combined1) <- "RNA"
+LOGallmarkers <- FindAllMarkers(immune.combined1)
+DefaultAssay(immune.combined2) <- "RNA"
+allmarkers <- FindAllMarkers(immune.combined2)
+allmarkers = allmarkers %>% select(gene, everything()) %>% subset(p_val<0.05)
+unjiaozhengtop10 =  allmarkers%>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+jiaozhengtop10 = allmarkers%>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+#大量进行GSEA分析----
+genes<-FindAllMarkers(Macrophages)
+Allgene<-genes
+Allgene2<-Allgene[order(Allgene$avg_log2FC, decreasing = T),]%>% 
+  group_by(cluster)
+celltype<-levels(Idents(Macrophages))
+file <- vector('list', length(celltype))
+for (i in 1:length(celltype) ){
+  z <- Allgene2 %>% filter(cluster %in% celltype[i])
+  file[i]<-list(z)
+}
+names(file) <- celltype
+Gseagobatch<-  function(object){object$SYMBOL<-object$gene
+object1 = bitr(object$gene, fromType="SYMBOL", toType=c("ENSEMBL", "ENTREZID"), OrgDb="org.Hs.eg.db")
+GDF15GSE<-left_join(object1,object,by = c("SYMBOL"))
+geneList = GDF15GSE[,5]
+## feature 2: named vector
+names(geneList) = as.character(GDF15GSE[,3])
+## feature 3: decreasing order
+geneList = sort(geneList, decreasing = TRUE)
+PAHgsego<-gseGO(geneList = geneList,
+                ont = "ALL",
+                keyType ="ENTREZID",
+                OrgDb = org.Hs.eg.db)
+PAHgsego<- setReadable(PAHgsego,OrgDb = org.Hs.eg.db,keyType = "ENTREZID")}
+Gseakeggbatch<-  function(object){object$SYMBOL<-object$gene
+object1 = bitr(object$gene, fromType="SYMBOL", toType=c("ENSEMBL", "ENTREZID"), OrgDb="org.Hs.eg.db")
+GDF15GSE<-left_join(object1,object,by = c("SYMBOL"))
+geneList = GDF15GSE[,5]
+## feature 2: named vector
+names(geneList) = as.character(GDF15GSE[,3])
+## feature 3: decreasing order
+geneList = sort(geneList, decreasing = TRUE)
+PAHCONgsekk<-gseKEGG(geneList = geneList,
+                     organism = "hsa")
+PAHCONgsekk<- setReadable(PAHCONgsekk,OrgDb = org.Hs.eg.db,keyType = "ENTREZID")}
+file1 <- lapply(file, function(x){Gseagobatch(x)})
+file2 <- lapply(file, function(x){Gseakeggbatch(x)})
+save(file1, file2,
+     file = "各簇GSEA数据.Rdata")
