@@ -1,0 +1,23 @@
+table(immune.combined1@meta.data$orig.ident)
+sp1 <- subset(immune.combined1, orig.ident=='P1')
+DefaultAssay(sp1) <- "RNA"
+count_raw <- as.matrix(sp1@assays$RNA@data)
+write.table(as.matrix(sp1@assays$RNA@data), 'cellphonedb_count.txt', sep='\t', quote=F)
+meta_data <- cbind(rownames(sp1@meta.data), sp1@meta.data[,'celltype.PBMCB1', drop=F])  
+meta_data <- as.matrix(meta_data)
+meta_data[is.na(meta_data)] = "Unkown"
+write.table(meta_data, 'cellphonedb_meta.txt', sep='\t', quote=F, row.names=F)
+table(immune.combined1@meta.data$orig.ident)
+sp2 <- subset(immune.combined1, orig.ident=='PBMCB')
+sp2_counts <- as.matrix(sp2@assays$RNA@data)
+write.table(as.matrix(sp2@assays$RNA@data), 'cellphonedb_count2.txt', sep='\t', quote=F)
+sp2_meta <- cbind(rownames(sp2@meta.data), sp2@meta.data[,'celltype.PBMCB1', drop=F])  
+sp2_meta <- as.matrix(sp2_meta)
+sp2_meta[is.na(sp2_meta)] = "Unkown"
+write.table(sp2_meta, 'cellphonedb_meta2.txt', sep='\t', quote=F, row.names=F)
+
+
+#cellphonedb method statistical_analysis sp1_meta.txt sp1_counts.txt --counts-data=gene_name 
+#cellphonedb plot dot_plot --rows in/input_rows.txt --output-name dotplot_select.pdf
+#cellphonedb plot heatmap_plot --rows in/input_rows.txt --output-name dotplot_select.pdf
+#cellphonedb plot heatmap_plot meta_data.txt
