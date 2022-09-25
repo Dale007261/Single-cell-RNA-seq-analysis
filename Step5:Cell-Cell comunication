@@ -1,0 +1,189 @@
+##cellchat----
+library(CellChat)
+library(patchwork)
+options(stringsAsFactors = FALSE)
+immune.combinedHC <- subset(Macrophages, subset = identity == "HC")
+immune.combinedPH <- subset(Macrophages, subset = identity == "PH")
+HCcellchat <- createCellChat(object = immune.combinedHC, group.by = "celltype")
+PHcellchat <- createCellChat(object = immune.combinedPH, group.by = "celltype")
+PHgroupSize <- as.numeric(table(PHcellchat@idents))
+HCgroupSize <- as.numeric(table(HCcellchat@idents)) 
+#Set the ligand-receptor interaction database
+CellChatDB <- CellChatDB.human  
+showDatabaseCategory(CellChatDB)
+# use a subset of CellChatDB for cell-cell communication analysis
+#CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling")
+# CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling")
+# set the used database in the object
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling")
+CellChatDB.use <- CellChatDB
+# set the used database in the object
+HCcellchat@DB <- CellChatDB.use 
+PHcellchat@DB <- CellChatDB.use 
+
+# Preprocessing the expression data for cell-cell communication analysis
+# subset the expression data of signaling genes for saving computation cost
+HCcellchat <- subsetData(HCcellchat)
+# identify OverExpressed Genes
+HCcellchat <- identifyOverExpressedGenes(HCcellchat)
+# identify OverExpressed Interactions
+HCcellchat <- identifyOverExpressedInteractions(HCcellchat)
+# project gene expression data onto PP
+HCcellchat <- projectData(HCcellchat, PPI.human)
+
+#Compute the communication probability and infer cellular communication network
+HCcellchat <- computeCommunProb(HCcellchat)
+HCcellchat <- filterCommunication(HCcellchat, min.cells = 10)
+
+#Infer the cell-cell communication at a signaling pathway
+HCcellchat <- computeCommunProbPathway(HCcellchat)
+#Calculate the aggregated cell-cell communication netw
+HCcellchat <- aggregateNet(HCcellchat)
+
+PHcellchat <- subsetData(PHcellchat)
+PHcellchat <- identifyOverExpressedGenes(PHcellchat)
+PHcellchat <- identifyOverExpressedInteractions(PHcellchat)
+PHcellchat <- projectData(PHcellchat, PPI.human)
+PHcellchat <- computeCommunProb(PHcellchat)
+PHcellchat <- filterCommunication(PHcellchat, min.cells = 10)
+PHcellchat <- computeCommunProbPathway(PHcellchat)
+PHcellchat <- aggregateNet(PHcellchat)
+
+HCcellchat <- netAnalysis_computeCentrality(HCcellchat, slot.name = "netP")
+PHcellchat <- netAnalysis_computeCentrality(PHcellchat, slot.name = "netP")
+
+#Load CellChat object of each dataset and then merge together
+object.list <- list(HC = HCcellchat,PH = PHcellchat)
+cellchat <- mergeCellChat(object.list, add.names = names(object.list),cell.prefix = TRUE)
+
+save(PHcellchat,HCcellchat,cellchat,file = "MacroCellchat.Rdata")
+
+
+
+#Visualization----
+weight.max <- getMaxWeight(object.list, attribute = c("idents","count"))
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_circle(object.list[[i]]@net$count, weight.scale = T, label.edge= F, edge.weight.max = weight.max[2], edge.width.max = 12, title.name = paste0("Number of interactions - ", names(object.list)[i]))
+}
+
+num.link <- sapply(object.list, function(x) {rowSums(x@net$count) + colSums(x@net$count)-diag(x@net$count)})
+weight.MinMax <- c(min(num.link), max(num.link)) # control the dot size in the different datasets
+gg <- list()
+for (i in 1:length(object.list)) {
+  gg[[i]] <- netAnalysis_signalingRole_scatter(object.list[[i]], title = names(object.list)[i], weight.MinMax = weight.MinMax)
+}
+#> Signaling role analysis on the aggregated cell-cell communication network from all signaling pathways
+#> Signaling role analysis on the aggregated cell-cell communication network from all signaling pathways
+patchwork::wrap_plots(plots = gg)
+
+cellchat <- computeNetSimilarityPairwise(cellchat, type = "functional")
+#> Compute signaling network similarity for datasets 1 2
+cellchat <- netEmbedding(cellchat, type = "functional")
+#> Manifold learning of the signaling networks for datasets 1 2
+cellchat <- netClustering(cellchat, type = "functional")
+#> Classification learning of the signaling networks for datasets 1 2
+# Visualization in 2D-space
+netVisual_embeddingPairwise(cellchat, type = "functional", label.size = 3.5)
+#> 2D visualization of signaling networks from datasets 1 2
+
+cellchat <- computeNetSimilarityPairwise(cellchat, type = "structural")
+#> Compute signaling network similarity for datasets 1 2
+cellchat <- netEmbedding(cellchat, type = "structural")
+#> Manifold learning of the signaling networks for datasets 1 2
+cellchat <- netClustering(cellchat, type = "structural")
+#> Classification learning of the signaling networks for datasets 1 2
+# Visualization in 2D-space
+netVisual_embeddingPairwise(cellchat, type = "structural", label.size = 3.5)
+#> 2D visualization of signaling networks from datasets 1 2
+netVisual_embeddingPairwiseZoomIn(cellchat, type = "structural", nCol = 2)
+
+rankSimilarity(cellchat, type = "functional")
+#> Compute the distance of signaling networks between datasets 1 2
+
+library(ComplexHeatmap)
+
+i = 1
+# combining all the identified signaling pathways from different datasets 
+pathway.union <- union(object.list[[i]]@netP$pathways, object.list[[i+1]]@netP$pathways)
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "outgoing", signaling = pathway.union, title = names(object.list)[i], width = 5, height = 6)
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "outgoing", signaling = pathway.union, title = names(object.list)[i+1], width = 5, height = 6)
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "incoming", signaling = pathway.union, title = names(object.list)[i], width = 5, height = 6, color.heatmap = "GnBu")
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "incoming", signaling = pathway.union, title = names(object.list)[i+1], width = 5, height = 6, color.heatmap = "GnBu")
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "all", signaling = pathway.union, title = names(object.list)[i], width = 5, height = 6, color.heatmap = "OrRd")
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "all", signaling = pathway.union, title = names(object.list)[i+1], width = 5, height = 6, color.heatmap = "OrRd")
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+
+gg1 <- compareInteractions(cellchat, show.legend = F, group = c(1,2))
+gg2 <- compareInteractions(cellchat, show.legend = F, group = c(1,2), measure = "weight")
+gg1 + gg2
+
+gg1 <- rankNet(cellchat, mode = "comparison", stacked = T, do.stat = TRUE)
+gg2 <- rankNet(cellchat, mode = "comparison", stacked = F, do.stat = TRUE)
+gg1 + gg2
+gg1
+netVisual_bubble(cellchat, sources.use = 4, targets.use = c(1:5),  comparison = c(1, 2), angle.x = 45)
+#> Comparing communications on a merged object
+netVisual_bubble(cellchat, sources.use = 5, targets.use = c(1:5),  comparison = c(1, 2), signaling = c("IL4"),max.dataset = 1, title.name = "Decreased signaling in PH", angle.x = 45, remove.isolate = T)
+
+library(ComplexHeatmap)
+pathways.show <- c("VISFATIN") 
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), attribute = pathways.show)
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+
+netAnalysis_contribution(PHcellchat, signaling = pathways.show)
+PHcellchat <- netAnalysis_computeCentrality(PHcellchat, slot.name = "netP") # the slot 'netP' means the inferred intercellular communication network of signaling pathways
+# Visualize the computed centrality scores using heatmap, allowing ready identification of major signaling roles of cell groups
+netAnalysis_signalingRole_network(PHcellchat, signaling = pathways.show, width = 8, height = 2.5, font.size = 10)
+
+
+
+df.net <- subsetCommunication(cellchat)
+df.netG<-df.net[["PH"]]
+df.netIl4<-df.netG[which(df.netG$ligand==c("IL4","TNFSF14","IL1A","IL1B","CD48","CCL3","BTLA","SEMA4D","IGF1")),]
+df.netIl4<-df.netG[which(df.netG$ligand==c("CCL3","CXCL9","CXCL10","CCL4","CCL5")),]
+pairLR.use.up = df.netIl4[, "interaction_name", drop = F]
+gg1 <- netVisual_bubble(cellchat, pairLR.use = pairLR.use.up, sources.use = c(1:4), targets.use = c(1:4), comparison = c(1, 2),  angle.x = 90, remove.isolate = T,title.name = "Up-regulated signaling in Graves")n
+
+pathways.show <- c("VISFATIN")
+pathways.show <- c("COMPLEMENT")
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), attribute = pathways.show) # control the edge weights across different datasets
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+
+pathways.show <- c("COMPLEMENT")
+pathways.show <- c("GALECTIN")
+# Compute the network centrality scores
+PHcellchat <- netAnalysis_computeCentrality(PHcellchat, slot.name = "netP") # the slot 'netP' means the inferred intercellular communication network of signaling pathways
+# Visualize the computed centrality scores using heatmap, allowing ready identification of major signaling roles of cell groups
+netAnalysis_signalingRole_network(PHcellchat, signaling = pathways.show, width = 8, height = 2.5, font.size = 10)
+netAnalysis_contribution(cellchat, signaling = pathways.show)
+netAnalysis_contribution(PHcellchat, signaling = pathways.show)
+
+cellchat@meta$datasets = factor(cellchat@meta$datasets, levels = c("PH", "HC")) # set factor level
+plotGeneExpression(PHcellchat, signaling = "IFN-II", colors.ggplot = T)
+plotGeneExpression(HCcellchat, signaling = "FASLG", colors.ggplot = T)
+
+plotGeneExpression(cellchat, signaling = "FASLG", colors.ggplot = T)
+plotGeneExpression(cellchat, signaling = "GALECTIN", split.by = "datasets", colors.ggplot = T)
+
+pathways.show <- c("GALECTIN") 
+pathways.show <- c("GALECTIN") 
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), attribute = pathways.show) # control the edge weights across different datasets
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_diffInteraction(cellchat, weight.scale = T)
+netVisual_diffInteraction(cellchat, weight.scale = T, measure = "weight")
