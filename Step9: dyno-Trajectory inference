@@ -1,0 +1,102 @@
+library(dyno)
+Idents(macrophages)<-"tech"
+P1 <- subset(macrophages, idents = c("P1"))
+P1 <- subset(P1,idents = c("Tcell","Bcell"),invert = TRUE)
+P1$celltype <- Idents(P1)
+P1
+DimPlot(P1, reduction = "umap", label = TRUE, repel = TRUE)
+dataset <- wrap_expression(
+  counts = t(as.data.frame(P1@assays$RNA@counts)),
+  expression = t(as.data.frame(P1@assays$RNA@data))
+)
+##set the start point
+dataset <- add_prior_information(
+  dataset,
+  start_id = "P1-AAACCCAAGCACACCC-1"
+)
+##set the start group
+dataset <- add_prior_information(
+  dataset,
+  start_id = colnames(P1)[P1$celltype == c("C1")]
+)
+dataset <- add_grouping(
+  dataset,
+  P1$celltype
+)
+dataset <- wrap_expression(
+  counts = t(as.data.frame(macrophages@assays$RNA@counts)),
+  expression = t(as.data.frame(macrophages@assays$RNA@data))
+)
+
+guidelines <- guidelines_shiny(dataset)
+methods_selected <- guidelines$methods_selected
+model_paga_tree <- infer_trajectory(dataset,"paga_tree")
+model_paga_tree <- infer_trajectory(dataset,methods_selected[2])
+model_slingshot<- infer_trajectory(dataset,methods_selected[1])
+model_slingshot<- infer_trajectory(dataset,"slingshot")
+model_scorpius<- infer_trajectory(dataset,"scorpius")
+model_angle<- infer_trajectory(dataset,"angle")
+model<-model_slingshot
+
+guidelines <- guidelines_shiny(dataset)
+methods_selected <- guidelines$methods_selected
+model_paga_tree <- infer_trajectory(dataset,methods_selected[2])
+model_slingshot<- infer_trajectory(dataset,methods_selected[1])
+model_scorpius<- infer_trajectory(dataset,methods_selected[3])
+model_angle<- infer_trajectory(dataset,methods_selected[4])
+model<-model_paga_tree
+model<-model_slingshot
+z<-get_dimred(model)
+plot_dimred(model,expression_source = dataset$expression,grouping = P1$celltype,label_milestones = T)
+plot_heatmap(model,expression_source = dataset$expression,grouping = P1$integrated_snn_res.0.6,features_oi = 100)
+z<-as.data.frame(P1@assays$RNA@counts)
+library(dyno)
+Idents(macrophages) <- "tech"
+P1 <- subset(macrophages, idents = c("P1"))
+dataset <- wrap_expression(
+  counts = t(as.data.frame(P1@assays$RNA@counts)),
+  expression = t(as.data.frame(P1@assays$RNA@data))
+)
+dataset <- add_prior_information(
+  dataset,
+  start_id = "P1-AAACCCAAGCACACCC-1"
+)
+dataset <- add_grouping(
+  dataset,
+  P1$celltype
+)
+guidelines <- guidelines_shiny(dataset)
+methods_selected <- guidelines$methods_selected
+model_slingshot <- infer_trajectory(dataset,methods_selected[1])
+model_paga_tree <- infer_trajectory(dataset,methods_selected[2])
+model_paga<- infer_trajectory(dataset,methods_selected[2])
+model<-model_slingshot
+model<-model_paga_tree
+model<-model_slingshot
+plot_dimred(model,expression_source = dataset$expression,label_milestones = T)
+
+P1 <-velocyto.R::read.loom.matrices(file ="/media/dell/新加卷/zzj/ZZ/velloom/P1_possorted_genome_bam_7JBX6.loom")
+spliced <- P1[["spliced"]]
+unspliced <- P1[["unspliced"]]
+colnames(spliced) <- sub("x", "-1",colnames(spliced))
+colnames(spliced) <- sub(":", "-",colnames(spliced))
+colnames(spliced) <- sub("possorted_genome_bam_7JBX6", "P1",colnames(spliced))
+colnames(unspliced) <- sub("x", "-1",colnames(unspliced))
+colnames(unspliced) <- sub(":", "-",colnames(unspliced))
+colnames(unspliced) <- sub("possorted_genome_bam_7JBX6", "P1",colnames(unspliced))
+cells.id <- as.character(model$cell_ids)
+spliced1<-spliced[, cells.id]
+unspliced1<-unspliced[, cells.id]
+emat<-spliced1
+nmat<-unspliced1
+length(intersect(rownames(emat),rownames(nmat)))
+monoclevelocity<-gene.relative.velocity.estimates(emat,nmat,deltaT = 1,kCells = 5,fit.quantile = 0.02)
+Idents(P1) <- "celltype"
+ident.colors <- (scales::hue_pal())(n = length(x = levels(x = P1)))
+names(x = ident.colors) <- levels(x = P1)
+cell.colors <- ident.colors[Idents(object = P1)]
+names(x = cell.colors) <- cells.id
+embmodel<-get_dimred(model_paga_tree)
+z<-show.velocity.on.embedding.cor(emb = embmodel, vel = monoclevelocity, n = 50, scale = "sqrt", cell.colors = ac(x = cell.colors, alpha = 0.5), 
+                                  cex = 0.8, arrow.scale = 3, show.grid.flow = TRUE, min.grid.cell.mass = 0.5, grid.n = 40, arrow.lwd = 1, 
+                                  do.par = FALSE, cell.border.alpha = 0.1)
