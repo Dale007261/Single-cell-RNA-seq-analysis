@@ -1,0 +1,49 @@
+#cellranger
+#download cellranger
+#unzip
+tar -zxvf cellranger-6.1.2.tar.gz
+##Situation 1---you get raw data：BCL file and CSV file（Index file）
+#use cellranger mkfastq transfer into fastq
+cellranger mkfastq --id =xxxx \
+  --run= BCL file path/BCL file name \--csv
+  = Index file path/xxxx.csv
+##Situation 2----you get fastq file，include I1_001,R1_001,R2_001
+#use cellranger count count fastq files
+/media/dell/gene/cellranger-4.0.0/cellranger count --id=xxxx \
+--transcriptome=/media/dell/gene/task/Rattus_norvegicus \
+--fastqs=/media/dell/gene/task/data \ #The folder where fastq is located
+--sample=svf \ # Note that this must be the SampleName prefix of the fastq file, as cellranger will treat files with this prefix as the same sample
+--localcores=80 \ # 80 cores
+--expect-cells=9000 \ 
+--localmem=300 # 300G RAM
+Once obtained, the three files in the filtered_feature_bc_matrix folder are imported into Seurat
+
+##Branch Line Situation 1：No library, need to build one---
+##Documentation required：transcriptome fna file and gtf file for corresponding species---
+#example
+~/cellranger-6.0.0/cellranger   mkref\ 
+ --genome= human_wenku \
+ --fasta=/media/dell/新加卷/zzj/5.27/GCF_000001405.38_GRCh38.p12_genomic.fna \
+ --genes=/media/dell/新加卷/zzj/5.27/GCF_000001405.38_GRCh38.p12_genomic.gtf \
+ 
+ ##Branch Line Situation 2：For nuclear transcriptome, intron needs to be counted as well----
+ #Change all the transcripts in the gtf file to exon---
+ #use Script
+ with open("gencode.vM12.annotation.gtf") as fi:
+    with open("gencode.vM12.transcripts.gtf", "w") as fo:
+        for line in fi:
+            if line.startswith("#"):
+                fo.write(line)
+            elif line.split()[2] == "transcript":
+                line_list = line.rstrip("\n").split("\t")
+                line_list[2] = "exon"
+                fo.write("\t".join(line_list)+"\n")
+            else:
+                pass
+#The library can be built afterwards to obtain a library suitable for nuclear sequencing---
+~/cellranger-6.0.0/cellranger   mkref\ 
+ --genome= human_wenku \
+ --fasta=/media/dell/新加卷/zzj/5.27/GCF_000001405.38_GRCh38.p12_genomic.fna \
+ --genes=/media/dell/新加卷/zzj/5.27/GCF_000001405.38_GRCh38.p12_genomic.gtf \
+ --nthreads 32
+ ##Once the library has been obtained, the next steps can be found in situation 2---
