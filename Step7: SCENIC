@@ -1,0 +1,187 @@
+library(Seurat)
+library(tidyverse)
+library(patchwork)
+library(SCENIC)
+library(AUCell)
+library(RcisTarget)
+library(GENIE3)
+options(stringAsFactors = FALSE)
+Sys.setenv(LANGUAGE = "en")
+dir.create("SCENIC")
+dir.create("SCENIC/int")
+scRNA <- readRDS("zzjmc.rds")
+setwd("~/SCENIC") 
+Idents(immune.combined1) <- "tech"
+immune.combined1<-RenameIdents(immune.combined1,"Con1"="Con",
+                               "Con2"="Con",
+                               "Con3"="Con",
+                               "P1"="PH",
+                               "P2"="PH",
+                               "P3"="PH")
+immune.combined1$identity <- Idents(immune.combined1)
+Idents(immune.combined1) <- "integrated_snn_res.0.6"
+immune.combined1<-RenameIdents(immune.combined1,"0"="C2",
+                               "1"="C5",
+                               "2"="C5",
+                               "3"="C2",
+                               "4"="C3",
+                               "5"="C3",
+                               "6"="C4",
+                               "7"="C1",
+                               "8"="C1",
+                               "9"="C4",
+                               "10"="C2",
+                               "11"="C3",
+                               "12"="C2",
+                               "13"="C5")
+immune.combined1$celltype <- Idents(immune.combined1)
+Macrophages$celltype <- paste(Idents(Macrophages), Macrophages$identity, sep = "_")
+cellInfo <- data.frame(Macrophages@meta.data)
+cellInfo <- cbind(Sample=row.names(cellInfo),cellInfo)
+colnames(cellInfo)[which(colnames(cellInfo)=="seurat_clusters")] <- "cluster"
+colnames(cellInfo)[which(colnames(cellInfo)=="celltype_Monaco")] <- "celltype"
+cellInfo <- cellInfo[,c("sample","cluster","celltype")]
+saveRDS(cellInfo, file="int/cellInfo.Rds")
+##preparation of expression matrix
+exprMat <- as.matrix(scRNA@assays$RNA@counts)
+write.csv(t(as.matrix(scRNA@assays$RNA@counts)),file = "MC.csv")
+##set analysis environment，motif file download from https://resources.aertslab.org/cistarget/，example use human hg38
+mydbDIR <- "~/SCENIC/ref"
+mydbs <- c("hg38__refseq-r80__500bp_up_and_100bp_down_tss.mc9nr.feather",
+           "hg38__refseq-r80__10kb_up_and_down_tss.mc9nr.feather")
+names(mydbs) <- c("500bp", "10kb")
+scenicOptions <- initializeScenic(org="hgnc", 
+                                  nCores=48,
+                                  dbDir=mydbDIR, 
+                                  dbs = mydbs,
+                                  datasetTitle = "HNSCC")
+saveRDS(scenicOptions, "int/scenicOptions.rds")
+##==Inference of transcriptional regulatory networks==##
+##Gene filtering
+#The filtering criterion was sum of gene expression > cell number * 3% and expressed in 1% of cells
+genesKept <- geneFiltering(exprMat, scenicOptions, 
+                           minCountsPerGene = 3 * 0.01 * ncol(exprMat), 
+                           minSamples = ncol(exprMat) * 0.01)
+exprMat_filtered <- exprMat[genesKept, ]
+write.csv(t(as.matrix(scRNA@assays$RNA@counts)),file = "MC.csv")
+##Calculating the correlation matrix
+runCorrelation(exprMat_filtered, scenicOptions)
+##TF-Targets correlation regression analysis
+exprMat_filtered_log <- log2(exprMat_filtered+1)
+runGenie3(exprMat_filtered_log, scenicOptions, nParts = 20)
+
+##Inferred co-expression module
+runSCENIC_1_coexNetwork2modules(scenicOptions)
+
+##Inferring transcriptional regulatory networks (regulon)
+runSCENIC_2_createRegulons(scenicOptions)
+##==regulon activity scoring and visualization==##
+##regulons calculate AUC values and perform downstream analysis
+exprMat_all <- as.matrix(scRNA@assays$RNA@counts)
+exprMat_all <- log2(exprMat_all+1)
+#Avoiding SCENIC bugs
+mydbDIR <- "~/SCENIC/ref"
+mydbs <- c("hg38__refseq-r80__500bp_up_and_100bp_down_tss.mc9nr.feather",
+           "hg38__refseq-r80__10kb_up_and_down_tss.mc9nr.feather")
+names(mydbs) <- c("500bp", "10kb")
+scenicOptions <- initializeScenic(org="hgnc", 
+                                  nCores=1,
+                                  dbDir=mydbDIR, 
+                                  dbs = mydbs,
+                                  datasetTitle = "HNSCC")
+saveRDS(scenicOptions, "int/scenicOptions.rds")
+runSCENIC_3_scoreCells(scenicOptions, exprMat=exprMat_all)
+
+#Binary conversion and derivative analysis
+runSCENIC_4_aucell_binarize(scenicOptions, exprMat=exprMat_all)
+
+#Display TF by cell type
+cellInfo <- readRDS("int/cellInfo.Rds")
+regulonAUC <- loadInt(scenicOptions, "aucell_regulonAUC")
+regulonAUC <- regulonAUC[onlyNonDuplicatedExtended(rownames(regulonAUC)),]
+regulonActivity_byCellType <- sapply(split(rownames(cellInfo), cellInfo$celltype),
+                                     function(cells) rowMeans(getAUC(regulonAUC)[,cells]))
+
+regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType), center = T, scale=T))
+
+pheatmap::pheatmap(regulonActivity_byCellType_Scaled, #fontsize_row=3,
+                   color=colorRampPalette(c("blue","white","red"))(100), breaks=seq(-3, 3, length.out = 100),
+                   treeheight_row=10, treeheight_col=10, border_color=NA)
+
+topRegulators <- reshape2::melt(regulonActivity_byCellType_Scaled)
+colnames(topRegulators) <- c("Regulon", "CellType", "RelativeActivity")
+topRegulators <- topRegulators[which(topRegulators$RelativeActivity>-1),]
+viewTable(topRegulators)
+
+minPerc <- .7
+binaryRegulonActivity <- loadInt(scenicOptions, "aucell_binary_nonDupl")
+cellInfo_binarizedCells <- cellInfo[which(rownames(cellInfo)%in% colnames(binaryRegulonActivity)),, drop=FALSE]
+regulonActivity_byCellType_Binarized <- sapply(split(rownames(cellInfo_binarizedCells), cellInfo_binarizedCells$sample), 
+                                               function(cells) rowMeans(binaryRegulonActivity[,cells, drop=FALSE]))
+binaryActPerc_subset <- regulonActivity_byCellType_Binarized[which(rowSums(regulonActivity_byCellType_Binarized>minPerc)>0),]
+ComplexHeatmap::Heatmap(binaryActPerc_subset, name="Regulon activity (%)", col = c("white","pink","red"))
+
+rss <- calcRSS(AUC=getAUC(regulonAUC), cellAnnotation=cellInfo[colnames(regulonAUC), "celltype"])
+rssPlot <- plotRSS(rss)
+
+rss <- calcRSS(AUC=getAUC(regulonAUC), cellAnnotation=cellInfo[colnames(regulonAUC), "celltype"], )
+
+#利用Seurat展示TF
+##导入原始regulonAUC矩阵
+AUCmatrix <- readRDS("int/3.4_regulonAUC.Rds")
+AUCmatrix <- AUCmatrix@assays@data@listData$AUC
+AUCmatrix <- data.frame(t(AUCmatrix), check.names=F)
+RegulonName_AUC <- colnames(AUCmatrix)
+RegulonName_AUC <- gsub(' \\(','_',RegulonName_AUC)
+RegulonName_AUC <- gsub('\\)','',RegulonName_AUC)
+colnames(AUCmatrix) <- RegulonName_AUC
+scRNAauc <- AddMetaData(scRNA, AUCmatrix)
+scRNAauc@assays$integrated <- NULL
+saveRDS(scRNAauc,'scRNAauc.rds')
+
+##导入二进制regulonAUC矩阵
+BINmatrix <- readRDS("int/4.1_binaryRegulonActivity.Rds")
+BINmatrix <- data.frame(t(BINmatrix), check.names=F)
+RegulonName_BIN <- colnames(BINmatrix)
+RegulonName_BIN <- gsub(' \\(','_',RegulonName_BIN)
+RegulonName_BIN <- gsub('\\)','',RegulonName_BIN)
+colnames(BINmatrix) <- RegulonName_BIN
+scRNAbin <- AddMetaData(scRNA, BINmatrix)
+scRNAbin@assays$integrated <- NULL
+saveRDS(scRNAbin, 'scRNAbin.rds')
+
+##利用Seurat可视化AUC
+dir.create('scenic_seurat')
+#FeaturePlot
+p1 = FeaturePlot(scRNAauc, features='TF', label=T, reduction = 'tsne')
+p2 = FeaturePlot(scRNAbin, features='TF', label=T, reduction = 'tsne')
+p3 = DimPlot(scRNA, reduction = 'tsne', group.by = "celltype_Monaco", label=T)
+plotc = p1|p2|p3
+ggsave('TF.png', plotc, width=14 ,height=4)
+
+#RidgePlot&VlnPlot
+p1 = RidgePlot(scRNAauc, features = "TF", group.by="celltype_Monaco") + 
+  theme(legend.position='none')
+p2 = VlnPlot(scRNAauc, features = "TF", pt.size = 0, group.by="celltype_Monaco") + 
+  theme(legend.position='none')
+plotc = p1 + p2
+ggsave('TF.png', plotc, width=10, height=8)
+
+library(pheatmap)
+cellInfo <- readRDS("int/cellInfo.Rds")
+celltype = subset(cellInfo,select = 'celltype')
+AUCmatrix <- t(AUCmatrix)
+BINmatrix <- t(BINmatrix)
+#挑选部分感兴趣的regulons
+my.regulons <- c('')
+myAUCmatrix <- AUCmatrix[rownames(AUCmatrix)%in%my.regulons,]
+myBINmatrix <- BINmatrix[rownames(BINmatrix)%in%my.regulons,]
+#使用regulon原始AUC值绘制热图
+pheatmap(myAUCmatrix, show_colnames=F, annotation_col=celltype,
+         filename = 'scenic_seurat/myAUCmatrix_heatmap.png',
+         width = 6, height = 5)
+#使用regulon二进制AUC值绘制热图
+pheatmap(myBINmatrix, show_colnames=F, annotation_col=celltype,
+         filename = 'scenic_seurat/myBINmatrix_heatmap.png',
+         color = colorRampPalette(colors = c("white","black"))(100),
+         width = 6, height = 5)
