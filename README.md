@@ -1,1 +1,1 @@
-# Singlecell-RNA-seq-analysis
+# Single-cell RNA-seq analysis
