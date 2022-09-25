@@ -1,0 +1,47 @@
+immune.combined1$celltype <- Idents(immune.combined1)
+immune.combined1$celltype.sample <- paste(Idents(immune.combined1), immune.combinedN1G$sample, sep = "_")
+Idents(immune.combined1) <- "celltype"
+Idents(immune.combined1) <- "celltype.sample"
+celltype<-levels(immune.combined1@meta.data[["celltype"]])
+celltypePH<- paste(celltype, "PH", sep = "_")
+celltypeHC<-paste(celltype, "HC", sep = "_")
+filecluster <- vector('list', 4)
+for (i in 1:4) {
+  z <- FindMarkers(immune.combined1, ident.1 = celltypePH[i], ident.2 = celltypeHC[i],assay="RNA",slot = "data",verbose=T)
+  filecluster[i]<-list(z)
+}
+for (i in 1:4) {
+  filecluster[[i]][["genename"]]<-rownames(filecluster[[i]])
+}
+fileclusterup <- vector('list', 4)
+for (i in 1:4) {
+  Z <- filecluster[[i]][which(filecluster[[i]]$avg_log2FC >= 0.25 & filecluster[[i]]$p_val < 0.05),]
+  fileclusterup[i]<-list(Z)
+}
+fileclusterdown <- vector('list', 4)
+for (i in 1:4) {
+  Z <- filecluster[[i]][which(filecluster[[i]]$avg_log2FC < -0.25 & filecluster[[i]]$p_val < 0.05),]
+  fileclusterdown[i]<-list(Z)
+}
+names(fileclusterdown) <- celltype
+names(fileclusterup) <- celltype
+clusterbatch<-  function(object){object$gene <- as.character(object$gene) #需要character格式,然后进行ID转化
+#Convert SYMBOL to ENSEMBL and ENTERZID
+object1 = bitr(object$gene, fromType="SYMBOL", toType=c("ENTREZID"), OrgDb="org.Hs.eg.db")
+}
+file1 <- lapply(fileclusterup, function(x){clusterbatch(x)})
+file2 <- lapply(file1, function(x){x$ENTREZID})
+clusterup<-compareCluster(file2, fun="enrichGO",
+                           pvalueCutoff = 1, 
+                           qvalueCutoff = 1,OrgDb = org.Hs.eg.db,readable = TRUE,ont = "BP")
+keggup<-compareCluster(file2,fun = enrichKEGG,pvalueCutoff = 1, #P值会过滤掉很多,可以全部输出
+                        qvalueCutoff = 1,organism = "hsa")
+keggup <- setReadable(keggup, OrgDb = org.Hs.eg.db, keyType="ENTREZID")
+file1 <- lapply(fileclusterdown, function(x){clusterbatch(x)})
+file2 <- lapply(file1, function(x){x$ENTREZID})
+clusterdown<-compareCluster(file2, fun="enrichGO",
+                          pvalueCutoff = 1, #P值会过滤掉很多,可以全部输出
+                          qvalueCutoff = 1,OrgDb = org.Hs.eg.db,readable = TRUE,ont = "BP")
+keggdown<-compareCluster(file2,fun = enrichKEGG,pvalueCutoff = 1, #P值会过滤掉很多,可以全部输出
+                       qvalueCutoff = 1,organism = "hsa")
+keggdown <- setReadable(keggdown, OrgDb = org.Hs.eg.db, keyType="ENTREZID")
