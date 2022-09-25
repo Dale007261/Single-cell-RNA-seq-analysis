@@ -1,1 +1,107 @@
+###Once you have the three files, you can import them into Seurat---
+library(Seurat)
+library(cowplot)
+library(ggplot2)
+library(sctransform)
+library(patchwork)
+library(tidyverse)
+library(DoubletFinder)
+#library(future)
+#options(future.globals.maxSize = 200 * 1024^3)
+#Sys.setenv(R_FUTURE_FORK_ENABLE = "TRUE")
+#Sys.setenv(parallelly.fork.enable = "TRUE")
+#Sys.setenv(R_FUTURE_FORK_ENABLE = "false")
+#Sys.setenv(parallelly.fork.enable = "FALSE")
+#supportsMulticore()
+#plan("multiprocess", workers = 40)
+#Import the files
+P1.data <- Read10X("/media/dell/Newwave/zzj/data/P1/outs/filtered_feature_bc_matrix/")
+#Naming prefixes to sample names to avoid duplicate names between samples
+colnames(x = P1.data) <- paste('P1', colnames(x = P1.data), sep = '-')
+#Create a Seurat object
+P1 <- CreateSeuratObject(counts = P1.data, min.cells = 5)
+#Calculation of mitochondrial ratio
+P1[["percent.mt"]] <- PercentageFeatureSet(object = P1, pattern = "MT-")
+#Calculating the percentage of haemoglobin ratio
+HB.genes <- c("HBA1","HBA2","HBB","HBD","HBE1","HBG1","HBG2","HBM","HBQ1","HBZ")
+HB_m <- match(HB.genes, rownames(P1@assays$RNA)) 
+HB.genes <- rownames(P1@assays$RNA)[HB_m] 
+HB.genes <- HB.genes[!is.na(HB.genes)] 
+P1[["percent.HB"]]<-PercentageFeatureSet(P1, features=HB.genes) 
+#head(scRNA@meta.data)
+#View cell volume
+col.num <- length(levels(as.factor(P1@meta.data$orig.ident)))
+#Enter the meta data：disease group, sample group
+P1$identity <- "PH"
+P1$tech <- "P1"
+#Violin diagram to see FEATURE, COUNT, mitochondrial ratio, haemoglobin ratio---
+VlnPlot(P1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.HB"), ncol = 3)
+##extract cells of Too much nFeature_RNA (bicellular), too little nFeature_RNA (didn't read on), too much mitochondria (dead), too much haemoglobin (red blood cells)
+P1 <- subset(P1, subset = nFeature_RNA > 200 & nFeature_RNA < 7200 & percent.mt < 20 & percent.HB < 1)
+#doubletfinder---
+P1 <- SCTransform(P1)
+P1 <- RunPCA(P1,verbose = FALSE, npcs = 100)
+ElbowPlot(P1,ndims=100)
+P1 <- RunUMAP(P1, dims = 1:50)
+combined.7 <- paramSweep_v3(P1, PCs = 1:50,sct = T)
+combined.8 <- summarizeSweep(combined.7, GT = FALSE)
+combined.9 <- find.pK(combined.8)
+mpK<-as.numeric(as.vector(combined.9$pK[which.max(combined.9$BCmetric)]))
+annotations <- P1@meta.data$seurat_clusters
+homotypic.prop <- modelHomotypic(annotations)
+DoubletRate = ncol(P1)*8*1e-6
+nExp_poi <- round(DoubletRate*length(P1@active.ident)) 
+nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+combined.10 <- doubletFinder_v3(P1, PCs = 1:50, pN = 0.25, pK = 0.03, nExp = 711, reuse.pANN = FALSE, sct = T)
+head(combined.10@meta.data)
+P1_final <- subset(combined.10, cells= rownames(combined.10@meta.data[combined.10@meta.data$DF.classifications_0.25_0.03_711=="Singlet",]))
+DefaultAssay(P1_final) <- "RNA"
+P1_final1 <- DietSeurat(P1_final, assays = "RNA")
 
+###Repeat the above steps to enter multiple samples----
+
+#Normalize---
+P1_final1 <- NormalizeData(P1_final1)
+P1_final1 <- FindVariableFeatures(P1_final1, selection.method = "vst", nfeatures = 2000)
+P2_final1 <- NormalizeData(P2_final1)
+P2_final1 <- FindVariableFeatures(P2_final1, selection.method = "vst", nfeatures = 2000)
+P3_final1 <- NormalizeData(P3_final1)
+P3_final1 <- FindVariableFeatures(P3_final1, selection.method = "vst", nfeatures = 2000)
+Con1_final1 <- NormalizeData(Con1_final1)
+Con1_final1 <- FindVariableFeatures(Con1_final1, selection.method = "vst", nfeatures = 2000)
+Con2_final1 <- NormalizeData(Con2_final1)
+Con2_final1 <- FindVariableFeatures(Con2_final1, selection.method = "vst", nfeatures = 2000)
+Con3_final1 <- NormalizeData(Con3_final1)
+Con3_final1 <- FindVariableFeatures(Con3_final1, selection.method = "vst", nfeatures = 2000)
+P4_final1 <- NormalizeData(P4_final1)
+P4_final1 <- FindVariableFeatures(P4_final1, selection.method = "vst", nfeatures = 2000)
+P5_final1 <- NormalizeData(P5_final1)
+P5_final1 <- FindVariableFeatures(P5_final1, selection.method = "vst", nfeatures = 2000)
+P6_final1 <- NormalizeData(P6_final1)
+P6_final1 <- FindVariableFeatures(P6_final1, selection.method = "vst", nfeatures = 2000)
+
+##After normalization, the cell cycle can be calculated
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+P1_final1 <- CellCycleScoring(P1_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+P2_final1 <- CellCycleScoring(P2_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+P3_final1 <- CellCycleScoring(P3_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+Con1_final1 <- CellCycleScoring(Con1_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+Con2_final1 <- CellCycleScoring(Con2_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+Con3_final1 <- CellCycleScoring(Con3_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+P4_final1 <- CellCycleScoring(P4_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+P5_final1 <- CellCycleScoring(P5_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+P6_final1 <- CellCycleScoring(P6_final1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+###Integration---
+features <- SelectIntegrationFeatures(object.list = list(P6_final1, P5_final1, P4_final1,P1_final1,P2_final1,P3_final1,Con1_final1,Con2_final1,Con3_final1), nfeatures = 3000)
+immune.anchors <- FindIntegrationAnchors(object.list = list(P6_final1, P5_final1, P4_final1,P1_final1,P2_final1,P3_final1,Con1_final1,Con2_final1,Con3_final1), anchor.features = features)
+immune.combined <- IntegrateData(anchorset = immune.anchors,features.to.integrate = features)
+DefaultAssay(immune.combined) <- "integrated"
+###Visualization----
+immune.combined1 <- ScaleData(immune.combined, verbose = FALSE)
+immune.combined1 <- RunPCA(immune.combined1, npcs = 100, verbose = FALSE)
+ElbowPlot(immune.combined1,ndims=100)
+immune.combined1 <- RunUMAP(immune.combined1, reduction = "pca", dims = 1:40)
+immune.combined1 <- FindNeighbors(immune.combined1, reduction = "pca", dims = 1:40)
+immune.combined1 <- FindClusters(immune.combined1, resolution = c(0.1,0.2,0.3,0.4,0.5,0.6,0.7))
+saveRDS(immune.combined1,file="/media/dell/Newwave/zzj/xxxxx.rds")
