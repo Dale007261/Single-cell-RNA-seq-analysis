@@ -1,0 +1,185 @@
+#rebuild the function
+importCDS <- function (otherCDS, seurat_scale=F, import_all = FALSE) 
+{
+  if (class(otherCDS)[1] == "Seurat") {
+    requireNamespace("Seurat")
+    if (!seurat_scale) {
+      data <- otherCDS@assays$RNA@counts
+    } else {
+      data <- otherCDS@assays$RNA@scale.data
+    }
+    if (class(data) == "data.frame") {
+      data <- as(as.matrix(data), "sparseMatrix")
+    }
+    pd <- tryCatch({
+      pd <- new("AnnotatedDataFrame", data = otherCDS@meta.data)
+      pd
+    }, error = function(e) {
+      pData <- data.frame(cell_id = colnames(data), row.names = colnames(data))
+      pd <- new("AnnotatedDataFrame", data = pData)
+      message("This Seurat object doesn't provide any meta data")
+      pd
+    })
+    if (length(setdiff(colnames(data), rownames(pd))) > 0) {
+      data <- data[, rownames(pd)]
+    }
+    fData <- data.frame(gene_short_name = row.names(data), 
+                        row.names = row.names(data))
+    fd <- new("AnnotatedDataFrame", data = fData)
+    #lowerDetectionLimit <- otherCDS@is.expr
+    if (all(data == floor(data))) {
+      expressionFamily <- negbinomial.size()
+      expr <- "negbinomial.size"
+    }
+    else if (any(data < 0)) {
+      expressionFamily <- uninormal()
+      expr <- "unimormal"
+    }
+    else {
+      expressionFamily <- tobit()
+      expr <- "tobit"
+    }
+    print(paste0("expressionFamily ",expr))
+    # valid_data <- data[, row.names(pd)]
+    monocle_cds <- newCellDataSet(data, phenoData = pd, featureData = fd, 
+                                  #lowerDetectionLimit = lowerDetectionLimit,
+                                  expressionFamily = expressionFamily)
+    if (import_all) {
+      if ("Monocle" %in% names(otherCDS@misc)) {
+        otherCDS@misc$Monocle@auxClusteringData$seurat <- NULL
+        otherCDS@misc$Monocle@auxClusteringData$scran <- NULL
+        monocle_cds <- otherCDS@misc$Monocle
+        mist_list <- otherCDS
+      }
+      else {
+        mist_list <- otherCDS
+      }
+    }
+    else {
+      mist_list <- list()
+    }
+    if ("var.genes" %in% slotNames(otherCDS)) {
+      var.genes <- setOrderingFilter(monocle_cds, otherCDS@var.genes)
+    }
+    monocle_cds@auxClusteringData$seurat <- mist_list
+  }
+  else if (class(otherCDS)[1] == "SCESet") {
+    requireNamespace("scater")
+    message("Converting the exprs data in log scale back to original scale ...")
+    data <- 2^otherCDS@assayData$exprs - otherCDS@logExprsOffset
+    fd <- otherCDS@featureData
+    pd <- otherCDS@phenoData
+    experimentData = otherCDS@experimentData
+    if ("is.expr" %in% slotNames(otherCDS)) 
+      lowerDetectionLimit <- otherCDS@is.expr
+    else lowerDetectionLimit <- 1
+    if (all(data == floor(data))) {
+      expressionFamily <- negbinomial.size()
+    }
+    else if (any(data < 0)) {
+      expressionFamily <- uninormal()
+    }
+    else {
+      expressionFamily <- tobit()
+    }
+    if (import_all) {
+      mist_list <- otherCDS
+    }
+    else {
+      mist_list <- list()
+    }
+    monocle_cds <- newCellDataSet(data, phenoData = pd, featureData = fd, 
+                                  lowerDetectionLimit = lowerDetectionLimit, expressionFamily = expressionFamily)
+    monocle_cds@auxOrderingData$scran <- mist_list
+  }
+  else {
+    stop("the object type you want to export to is not supported yet")
+  }
+  return(monocle_cds)
+}
+
+##
+library(monocle)
+library(DDRTree)
+library(pheatmap)
+library(data.table)
+library(plyr)
+
+pbmc_monocle <- importCDS(P1)
+pbmc_monocle <- estimateSizeFactors(pbmc_monocle)
+pbmc_monocle <- estimateDispersions(pbmc_monocle)
+disp_table <- dispersionTable(pbmc_monocle)
+ordering_genes <- subset(disp_table,
+                         mean_expression >= 0.5 &
+                           dispersion_empirical >= 1 * dispersion_fit)$gene_id
+
+pbmc_monocle <-
+  setOrderingFilter(pbmc_monocle,
+                    ordering_genes = ordering_genes)
+
+# feature
+# colnames(pData(pbmc_monocle))
+pbmc_monocle <-
+  reduceDimension(pbmc_monocle, reduction_method = 'DDRTree', 
+                  auto_param_selection = T)
+
+pbmc_monocle <- orderCells(pbmc_monocle)
+
+#pbmc_monocle <-
+#    orderCells(pbmc_monocle, root_state = GM_state(pbmc_monocle))
+
+plot_cell_trajectory(pbmc_monocle, color_by = "Pseudotime")
+plot_cell_trajectory(pbmc_monocle, color_by = "celltype", cell_size = 2)
+
+#highvariable gene
+pbmc_monocle_scaledata <- importCDS(P1)
+pbmc_monocle_scaledata <- estimateSizeFactors(pbmc_monocle_scaledata)
+# pbmc_monocle_scaledata <- estimateDispersions(pbmc_monocle_scaledata)
+
+#disp_table <- dispersionTable(pbmc_monocle_scaledata)
+ordering_genes <- P1@assays$RNA@var.features
+
+pbmc_monocle_scaledata <-
+  setOrderingFilter(pbmc_monocle_scaledata,
+                    ordering_genes = ordering_genes)
+
+# feature
+# colnames(pData(pbmc_monocle_scaledata))
+pbmc_monocle_scaledata <-
+  reduceDimension(pbmc_monocle_scaledata, norm_method="none", method = 'DDRTree')
+
+pbmc_monocle_scaledata <-
+  orderCells(pbmc_monocle_scaledata)
+
+#pbmc_monocle_scaledata <-
+#    orderCells(pbmc_monocle_scaledata, root_state = GM_state(pbmc_monocle_scaledata))
+
+plot_cell_trajectory(pbmc_monocle_scaledata, color_by = "Pseudotime")
+plot_cell_trajectory(pbmc_monocle_scaledata, color_by = "celltype", cell_size = 3)
+#add RNAvelocity information
+spliced <- P1[["spliced"]]
+unspliced <- P1[["unspliced"]]
+colnames(spliced) <- sub("x", "-1",colnames(spliced))
+colnames(spliced) <- sub(":", "-",colnames(spliced))
+colnames(spliced) <- sub("possorted_genome_bam_7JBX6", "BMPR21",colnames(spliced))
+colnames(unspliced) <- sub("x", "-1",colnames(unspliced))
+colnames(unspliced) <- sub(":", "-",colnames(unspliced))
+colnames(unspliced) <- sub("possorted_genome_bam_7JBX6", "BMPR21",colnames(unspliced))
+cells.id <- colnames(pbmc_monocle)
+spliced1<-spliced[, cells.id]
+unspliced1<-unspliced[, cells.id]
+cell_cluster<-as.character(pData(pbmc_monocle)$celltype)
+names(cell_cluster)<-cells.id
+emat<-filter.genes.by.cluster.expression(spliced1,cell_cluster,min.max.cluster.average = .1)
+nmat<-filter.genes.by.cluster.expression(unspliced1,cell_cluster,min.max.cluster.average = .1)
+length(intersect(rownames(emat),rownames(nmat)))
+monoclevelocity<-gene.relative.velocity.estimates(emat,nmat,deltaT = 1,kCells = 10,fit.quantile = 0.02)
+Idents(P1) <- "celltype"
+ident.colors <- (scales::hue_pal())(n = length(x = levels(x = P1)))
+names(x = ident.colors) <- levels(x = P1)
+cell.colors <- ident.colors[Idents(object = P1)]
+names(x = cell.colors) <- cells.id
+z1<-t(reducedDimS(pbmc_monocle))
+z<-show.velocity.on.embedding.cor(emb = t(reducedDimS(pbmc_monocle)), vel = monoclevelocity, n = 100, scale = "sqrt", cell.colors = ac(x = cell.colors, alpha = 0.5), 
+                                  cex = 0.8, arrow.scale = 3, show.grid.flow = TRUE, min.grid.cell.mass = 0.5, grid.n = 40, arrow.lwd = 1, 
+                                  do.par = FALSE, cell.border.alpha = 0.1)
