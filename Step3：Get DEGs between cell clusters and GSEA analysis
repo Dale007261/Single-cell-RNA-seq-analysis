@@ -8,6 +8,26 @@ DefaultAssay(immune.combined1) <- "RNA"
 allmarkers <- FindAllMarkers(immune.combined2)
 allmarkers = allmarkers %>% select(gene, everything()) %>% subset(p_val<0.05)
 top10gene =  allmarkers%>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+#see the markers
+plots<-VlnPlot(immune.combined1, features = top10gene$gene,
+                 pt.size = 0, combine = FALSE)
+wrap_plots(plots = plots, ncol = 1)
+#name the clusters
+Idents(immune.combined1) <- "integrated_snn_res.0.6"
+immune.combined1<-RenameIdents(immune.combined1,"0"="C2",
+                               "1"="C5",
+                               "2"="C5",
+                               "3"="C2",
+                               "4"="C3",
+                               "5"="C3",
+                               "6"="C4",
+                               "7"="C1",
+                               "8"="C1",
+                               "9"="C4",
+                               "10"="C2",
+                               "11"="C3",
+                               "12"="C2",
+                               "13"="C5")
 #GSEA analysis----
 genes<-FindAllMarkers(Macrophages)
 Allgene<-genes
@@ -20,12 +40,13 @@ for (i in 1:length(celltype) ){
   file[i]<-list(z)
 }
 names(file) <- celltype
+##the Functions to do GSEA analysis
 Gseagobatch<-  function(object){object$SYMBOL<-object$gene
 object1 = bitr(object$gene, fromType="SYMBOL", toType=c("ENSEMBL", "ENTREZID"), OrgDb="org.Hs.eg.db")
-GDF15GSE<-left_join(object1,object,by = c("SYMBOL"))
-geneList = GDF15GSE[,5]
+DDGSE<-left_join(object1,object,by = c("SYMBOL"))
+geneList = DDGSE[,5]
 ## feature 2: named vector
-names(geneList) = as.character(GDF15GSE[,3])
+names(geneList) = as.character(DDGSE[,3])
 ## feature 3: decreasing order
 geneList = sort(geneList, decreasing = TRUE)
 PAHgsego<-gseGO(geneList = geneList,
@@ -33,17 +54,20 @@ PAHgsego<-gseGO(geneList = geneList,
                 keyType ="ENTREZID",
                 OrgDb = org.Hs.eg.db)
 PAHgsego<- setReadable(PAHgsego,OrgDb = org.Hs.eg.db,keyType = "ENTREZID")}
+
+
 Gseakeggbatch<-  function(object){object$SYMBOL<-object$gene
 object1 = bitr(object$gene, fromType="SYMBOL", toType=c("ENSEMBL", "ENTREZID"), OrgDb="org.Hs.eg.db")
-GDF15GSE<-left_join(object1,object,by = c("SYMBOL"))
-geneList = GDF15GSE[,5]
+DDGSE<-left_join(object1,object,by = c("SYMBOL"))
+geneList = DDGSE[,5]
 ## feature 2: named vector
-names(geneList) = as.character(GDF15GSE[,3])
+names(geneList) = as.character(DDGSE[,3])
 ## feature 3: decreasing order
 geneList = sort(geneList, decreasing = TRUE)
 PAHCONgsekk<-gseKEGG(geneList = geneList,
                      organism = "hsa")
 PAHCONgsekk<- setReadable(PAHCONgsekk,OrgDb = org.Hs.eg.db,keyType = "ENTREZID")}
+
 file1 <- lapply(file, function(x){Gseagobatch(x)})
 file2 <- lapply(file, function(x){Gseakeggbatch(x)})
 save(file1, file2,
