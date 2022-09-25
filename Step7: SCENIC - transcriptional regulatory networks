@@ -45,6 +45,7 @@ saveRDS(cellInfo, file="int/cellInfo.Rds")
 ##preparation of expression matrix
 exprMat <- as.matrix(scRNA@assays$RNA@counts)
 write.csv(t(as.matrix(scRNA@assays$RNA@counts)),file = "MC.csv")
+
 ##set analysis environment，motif file download from https://resources.aertslab.org/cistarget/，example use human hg38
 mydbDIR <- "~/SCENIC/ref"
 mydbs <- c("hg38__refseq-r80__500bp_up_and_100bp_down_tss.mc9nr.feather",
@@ -56,6 +57,8 @@ scenicOptions <- initializeScenic(org="hgnc",
                                   dbs = mydbs,
                                   datasetTitle = "HNSCC")
 saveRDS(scenicOptions, "int/scenicOptions.rds")
+
+
 ##==Inference of transcriptional regulatory networks==##
 ##Gene filtering
 #The filtering criterion was sum of gene expression > cell number * 3% and expressed in 1% of cells
