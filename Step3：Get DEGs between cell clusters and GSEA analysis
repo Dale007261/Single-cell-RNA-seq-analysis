@@ -1,17 +1,14 @@
 #Using clutree to help with clustering
 library(clustree)
 clustree(immune.combined1@meta.data,prefix ="integrated_snn_res.")
-#### 查看各组细胞数 ----
+#### View cell counts for each sample ----
 table(Idents(immune.combined1),immune.combined1$tech)
-#### 找marker ----
+#### find markers ----
 DefaultAssay(immune.combined1) <- "RNA"
-LOGallmarkers <- FindAllMarkers(immune.combined1)
-DefaultAssay(immune.combined2) <- "RNA"
 allmarkers <- FindAllMarkers(immune.combined2)
 allmarkers = allmarkers %>% select(gene, everything()) %>% subset(p_val<0.05)
-unjiaozhengtop10 =  allmarkers%>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
-jiaozhengtop10 = allmarkers%>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
-#大量进行GSEA分析----
+top10gene =  allmarkers%>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+#GSEA analysis----
 genes<-FindAllMarkers(Macrophages)
 Allgene<-genes
 Allgene2<-Allgene[order(Allgene$avg_log2FC, decreasing = T),]%>% 
@@ -50,4 +47,4 @@ PAHCONgsekk<- setReadable(PAHCONgsekk,OrgDb = org.Hs.eg.db,keyType = "ENTREZID")
 file1 <- lapply(file, function(x){Gseagobatch(x)})
 file2 <- lapply(file, function(x){Gseakeggbatch(x)})
 save(file1, file2,
-     file = "各簇GSEA数据.Rdata")
+     file = "GSEA_data.Rdata")
